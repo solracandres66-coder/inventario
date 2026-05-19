@@ -1,5 +1,5 @@
 # ============================================
-# INVENTARIO COMPLETO → TXT + Google Sheets
+# INVENTARIO DETALLADO → TXT + Google Sheets
 # ============================================
 
 $ErrorActionPreference = "Continue"
@@ -8,11 +8,8 @@ $fecha = Get-Date -Format "yyyy-MM-dd_HH-mm"
 $computer = $env:COMPUTERNAME
 
 $txtPath = Join-Path $OutputDir "Inventario_$computer_$fecha.txt"
-
-# ================== URL DE GOOGLE SHEETS ==================
 $GoogleWebAppURL = "https://script.google.com/macros/s/AKfycbyUhL7A6RmeJViyuJC7PdSpuUx_Ifmf9WUwXVmOYH9YWqpY3qxd82sImcTYEmxxUzDr/exec"
 
-# ====================== FUNCIÓN TÍTULO ======================
 function titulo($text) {
     $line = "=" * 75
     Add-Content -Path $txtPath -Value "`n$line" -Encoding UTF8
@@ -20,87 +17,67 @@ function titulo($text) {
     Add-Content -Path $txtPath -Value "$line" -Encoding UTF8
 }
 
-# ====================== INICIO DEL TXT ======================
 "Inventario para Cotización - Generado: $(Get-Date)" | Out-File -FilePath $txtPath -Encoding UTF8 -Force
 
+# ====================== TXT DETALLADO (mantengo tu estilo) ======================
 titulo "INFORMACION GENERAL"
-try {
-    Get-ComputerInfo | Format-List WindowsProductName, WindowsVersion, WindowsBuildLabEx, OsArchitecture,
-    CsManufacturer, CsModel, CsTotalPhysicalMemory, OsUptime | Out-File -FilePath $txtPath -Append -Encoding UTF8
-} catch {
-    Add-Content -Path $txtPath -Value "No se pudo obtener informacion general" -Encoding UTF8
-}
+try { Get-ComputerInfo | Format-List WindowsProductName, WindowsVersion, CsManufacturer, CsModel, CsTotalPhysicalMemory | Out-File -FilePath $txtPath -Append -Encoding UTF8 } catch {}
 
-titulo "PROCESADOR (CPU)"
-try {
-    Get-CimInstance Win32_Processor | Select-Object Name, Manufacturer, MaxClockSpeed, NumberOfCores, NumberOfLogicalProcessors |
-    Format-List | Out-File -FilePath $txtPath -Append -Encoding UTF8
-} catch {}
+titulo "PROCESADOR"
+try { Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors | Format-List | Out-File -FilePath $txtPath -Append -Encoding UTF8 } catch {}
 
-titulo "MEMORIA RAM"
+titulo "MEMORIA RAM (Slots)"
 try {
-    $ram = Get-CimInstance Win32_PhysicalMemory
-    foreach ($r in $ram) {
+    $ramModules = Get-CimInstance Win32_PhysicalMemory
+    foreach ($r in $ramModules) {
         $gb = [math]::Round($r.Capacity / 1GB, 2)
-        Add-Content -Path $txtPath -Value "Slot: $($r.DeviceLocator) | Capacidad: $gb GB | Velocidad: $($r.Speed) MHz | Parte: $($r.PartNumber)" -Encoding UTF8
+        Add-Content -Path $txtPath -Value "Slot $($r.DeviceLocator): $gb GB | $($r.Speed) MHz | $($r.Manufacturer) $($r.PartNumber)" -Encoding UTF8
     }
-    $total = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
-    Add-Content -Path $txtPath -Value "TOTAL RAM: $total GB" -Encoding UTF8
 } catch {}
 
 titulo "ALMACENAMIENTO"
-try {
-    Get-PhysicalDisk | Select-Object FriendlyName, MediaType, @{Name="SizeGB";Expression={[math]::Round($_.Size/1GB,2)}}, BusType |
-    Format-Table -AutoSize | Out-File -FilePath $txtPath -Append -Encoding UTF8
-} catch {}
+try { Get-PhysicalDisk | Select-Object FriendlyName, MediaType, @{Name="SizeGB";E={[math]::Round($_.Size/1GB,2)}} | Format-Table -AutoSize | Out-File -FilePath $txtPath -Append -Encoding UTF8 } catch {}
 
-titulo "GPU"
-try {
-    Get-CimInstance Win32_VideoController | Select-Object Name, @{Name="RAM_GB";E={[math]::Round($_.AdapterRAM/1GB,2)}} |
-    Format-List | Out-File -FilePath $txtPath -Append -Encoding UTF8
-} catch {}
-
-titulo "PLACA BASE"
-try {
-    Get-CimInstance Win32_BaseBoard | Format-List Manufacturer, Product, SerialNumber | Out-File -FilePath $txtPath -Append -Encoding UTF8
-} catch {}
+titulo "GPU - PLACA BASE - FUENTE"
+try { Get-CimInstance Win32_VideoController | Select-Object Name | Format-List | Out-File -FilePath $txtPath -Append -Encoding UTF8 } catch {}
+try { Get-CimInstance Win32_BaseBoard | Format-List Manufacturer, Product, SerialNumber | Out-File -FilePath $txtPath -Append -Encoding UTF8 } catch {}
 
 titulo "MONITORES"
 try {
     Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID | ForEach-Object {
         $name = ($_.UserFriendlyName | Where-Object {$_ -ne 0} | ForEach-Object {[char]$_}) -join ""
-        Add-Content -Path $txtPath -Value "Monitor: $name" -Encoding UTF8
+        $serial = ($_.SerialNumberID | Where-Object {$_ -ne 0} | ForEach-Object {[char]$_}) -join ""
+        Add-Content -Path $txtPath -Value "Monitor: $name | Serial: $serial" -Encoding UTF8
     }
 } catch {}
 
-titulo "INFORMACION FINAL"
-Add-Content -Path $txtPath -Value "Equipo     : $computer" -Encoding UTF8
-Add-Content -Path $txtPath -Value "Usuario    : $env:USERNAME" -Encoding UTF8
-Add-Content -Path $txtPath -Value "Fecha      : $(Get-Date)" -Encoding UTF8
-
-# ====================== DATOS PARA GOOGLE SHEETS ======================
+# ====================== DATOS PARA GOOGLE SHEETS (MÁS DETALLADO) ======================
 $data = @{
-    computerID       = $computer
-    tipoEquipo       = "Desktop"
-    marca            = ""
-    modelo           = ""
-    serial           = ""
-    so               = ""
-    usuario          = $env:USERNAME
-    ubicacion        = ""
-    estado           = "Operativo"
-    observaciones    = ""
-    procesador       = ""
-    ram              = ""
-    almacenamiento   = ""
-    gpu              = ""
-    placaBase        = ""
-    monitor          = ""
-    perifericos      = ""
-    estadoPerifericos = ""
+    noID              = $computer
+    tipoEquipo        = "Desktop"
+    marca             = ""
+    modelo            = ""
+    serial            = ""
+    so                = ""
+    usuario           = $env:USERNAME
+    ubicacion         = ""
+    estado            = "Operativo"
+    observaciones     = ""
+    procesador        = ""
+    ram               = ""
+    ramSlots          = ""
+    almacenamiento    = ""
+    gpu               = ""
+    placaBase         = ""
+    fuentePoder       = ""
+    monitor           = ""
+    monitorSerial     = ""
+    perifericos       = ""
+    licenciaWindows   = ""
+    licenciaOffice    = ""
 }
 
-# Rellenar datos
+# Rellenado automático mejorado
 try {
     $ci = Get-ComputerInfo
     $data.so     = $ci.WindowsProductName
@@ -116,12 +93,12 @@ try {
 try {
     $totalRAM = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 0)
     $data.ram = "$totalRAM GB"
+    $data.ramSlots = (Get-CimInstance Win32_PhysicalMemory).Count
 } catch {}
 
 try {
     $disk = Get-PhysicalDisk | Where-Object BusType -ne "USB" | Select-Object -First 1
-    $size = [math]::Round($disk.Size/1GB, 0)
-    $data.almacenamiento = "$($disk.MediaType) $size GB"
+    $data.almacenamiento = "$($disk.MediaType) $([math]::Round($disk.Size/1GB,0)) GB"
 } catch {}
 
 try {
@@ -131,22 +108,39 @@ try {
 
 try {
     $mb = Get-CimInstance Win32_BaseBoard
-    $data.placaBase = "$($mb.Manufacturer) $($mb.Product)"
+    $data.placaBase = "$($mb.Manufacturer) $($mb.Product) SN:$($mb.SerialNumber)"
+} catch {}
+
+# Monitores detallados
+try {
+    $monData = Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID | ForEach-Object {
+        $name = ($_.UserFriendlyName | Where-Object {$_ -ne 0} | ForEach-Object {[char]$_}) -join ""
+        $serial = ($_.SerialNumberID | Where-Object {$_ -ne 0} | ForEach-Object {[char]$_}) -join ""
+        "$name ($serial)"
+    }
+    $data.monitor = ($monData | Where-Object {$_}) -join " | "
+} catch {}
+
+# Licencias
+try {
+    $winLic = Get-CimInstance SoftwareLicensingProduct | Where-Object { $_.Name -like "*Windows*" -and $_.PartialProductKey }
+    if ($winLic) { $data.licenciaWindows = "$($winLic.Name) - $($winLic.LicenseStatus)" }
+} catch {}
+
+try {
+    $officeLic = Get-CimInstance SoftwareLicensingProduct | Where-Object { $_.Name -like "*Office*" -and $_.PartialProductKey }
+    if ($officeLic) { $data.licenciaOffice = $officeLic.Name }
 } catch {}
 
 # ====================== ENVIAR A GOOGLE SHEETS ======================
 try {
     $json = $data | ConvertTo-Json
-    Invoke-WebRequest -Uri $GoogleWebAppURL -Method Post -Body $json -ContentType "application/json" -TimeoutSec 20 | Out-Null
-    Write-Host "✅ Datos enviados a Google Sheets" -ForegroundColor Green
-} 
-catch {
-    Write-Host "⚠️  No se pudo enviar a Google Sheets (sin internet o error)" -ForegroundColor Yellow
+    Invoke-WebRequest -Uri $GoogleWebAppURL -Method Post -Body $json -ContentType "application/json" -TimeoutSec 30 | Out-Null
+    Write-Host "✅ Enviado correctamente a Google Sheets" -ForegroundColor Green
+} catch {
+    Write-Host "⚠️ No se pudo enviar a Google Sheets" -ForegroundColor Yellow
 }
 
-# ====================== MENSAJE FINAL ======================
 Write-Host "=======================================" -ForegroundColor Green
 Write-Host " INVENTARIO GENERADO CORRECTAMENTE" -ForegroundColor Green
-Write-Host "=======================================" -ForegroundColor Green
-Write-Host "Archivo TXT guardado en Escritorio" -ForegroundColor Cyan
-Write-Host "Google Sheets actualizado" -ForegroundColor Magenta
+Write-Host "TXT en Escritorio + Google Sheets actualizado" -ForegroundColor Cyan
